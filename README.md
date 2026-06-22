@@ -19,6 +19,7 @@ HA Remote Calendar  ──GET──►  this server  ──►  scraper plugin  
 | Feed path | Site |
 |-----------|------|
 | `/unionartscenter.ics` | [Union Arts Center](https://order.unionartscenter.org/events) |
+| `/stgpresents.ics` | [Seattle Theatre Group](https://www.stgpresents.org/calendar/) |
 
 ## Adding a new scraper
 
@@ -56,6 +57,27 @@ session**: GETs `/events` to collect cookies and scrape the token, then POSTs
 to the data endpoint. You never have to paste tokens — they're acquired
 automatically on each request.
 
+## How the Seattle Theatre Group scraper works
+
+STG runs WordPress + [Modern Events Calendar](https://webnus.net/modern-events-calendar/)
+(MEC), behind SiteGround's proof-of-work bot challenge. The scraper bootstraps
+its own access, the same spirit as Union Arts Center:
+
+1. **Clearance** — GETs `/calendar/`. If SiteGround serves its JavaScript
+   proof-of-work challenge instead of the page, the scraper solves it (the same
+   SHA1 hash search a browser runs) and submits the solution to earn the
+   clearance cookie. No manual step needed.
+2. **Config** — scrapes the MEC monthly skin's serialized `atts` settings out of
+   the cleared page; MEC's AJAX month loader needs them.
+3. **Events** — pages month by month through `admin-ajax.php`
+   (`action=mec_monthly_view_load_month`), reading the schema.org JSON-LD MEC
+   embeds in each calendar cell.
+
+MEC's JSON-LD prints local wall-clock times but labels them with the site's UTC
+offset (a known MEC bug) — e.g. a 1:00 PM show is emitted as `…T06:00:00-07:00`.
+The scraper recovers the real time by reading the instant's UTC wall-clock and
+re-stamping it in `America/Los_Angeles`.
+
 ## Setup
 
 Requires Node 20+.
@@ -64,6 +86,7 @@ Requires Node 20+.
 npm install
 npm start
 # → Registered: Union Arts Center → /unionartscenter.ics
+# → Registered: Seattle Theatre Group → /stgpresents.ics
 # → Listening on http://0.0.0.0:3000
 ```
 
@@ -135,6 +158,9 @@ Requires Home Assistant **2025.4** or newer.
   logs for the error message. For UAC specifically: the Incapsula bot-protection
   layer occasionally serves a JS challenge instead of real HTML; re-running
   usually succeeds. If persistent, a Playwright-based bootstrap can be added.
+  For STG: the first uncached request solves a SiteGround proof-of-work
+  challenge (a few seconds of CPU) before fetching ~14 months of events, so the
+  initial generation is slower than the cached responses that follow.
 - **Empty calendar** — the scraper ran but found no events in the date window.
   Verify the site has upcoming events and the scraper's date range covers them.
 - **Duplicate events in HA** — UIDs are stable by design; this shouldn't happen.
