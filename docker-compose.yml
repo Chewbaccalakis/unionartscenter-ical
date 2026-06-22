@@ -1,0 +1,23 @@
+services:
+  uac-ical:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      # Optional: restrict bind address inside the container
+      # HOST: 127.0.0.1
+
+      # How long to cache a generated feed before refetching (seconds)
+      CACHE_TTL_SECONDS: 3600
+
+      # Uncomment to require HTTP basic auth (HA Remote Calendar supports it)
+      # CALENDAR_USERNAME: ha
+      # CALENDAR_PASSWORD: changeme
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
