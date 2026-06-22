@@ -1,4 +1,4 @@
-# Calendar scraper → iCal server
+# ical-scraper
 
 A Node server that scrapes event calendars from websites that don't publish
 iCal feeds, and serves them as RFC 5545 `.ics` endpoints for Home Assistant's
@@ -95,15 +95,15 @@ node src/cli.js unionartscenter -o out.ics
 docker compose up -d
 ```
 
-`docker-compose.yml` defaults to the published image (`ghcr.io/chewbaccalakis/unionartscenter-ical:latest`). To build locally, swap to the commented `build: .` line.
+`docker-compose.yml` defaults to the published image (`ghcr.io/chewbaccalakis/ical-scraper:latest`). To build locally, swap to the commented `build: .` line.
 
 ### systemd
 
-`/etc/systemd/system/calendar-scraper.service`:
+`/etc/systemd/system/ical-scraper.service`:
 
 ```ini
 [Unit]
-Description=Calendar scraper iCal server
+Description=ical-scraper
 After=network-online.target
 
 [Service]
@@ -117,7 +117,7 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now calendar-scraper
+sudo systemctl enable --now ical-scraper
 ```
 
 ## Adding to Home Assistant
