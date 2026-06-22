@@ -1,0 +1,20 @@
+{
+  "name": "unionartscenter-ical",
+  "version": "1.0.0",
+  "description": "On-demand iCal feed bridging Union Arts Center's Tessitura TNEW calendar into Home Assistant",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "generate": "node src/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@touch4it/ical-timezones": "^1.9.0",
+    "ical-generator": "^8.0.1",
+    "luxon": "^3.5.0"
+  },
+  "license": "MIT"
+}
