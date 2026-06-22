@@ -1,0 +1,9 @@
+# Generated calendar output
+*.ics
+*.ics.tmp
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
