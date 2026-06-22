@@ -1,60 +1,73 @@
-# Union Arts Center → iCal bridge
+# ical-scraper
 
-Union Arts Center sells tickets through Tessitura's **TNEW** platform
-(`order.unionartscenter.org`), which does **not** publish a subscribable iCal
-feed. Its [`/events`](https://order.unionartscenter.org/events) page renders the
-calendar client-side from a JSON endpoint, so there's nothing for Home
-Assistant's **Remote Calendar** integration to subscribe to.
+A Node server that scrapes event calendars from websites that don't publish
+iCal feeds, and serves them as RFC 5545 `.ics` endpoints for Home Assistant's
+[Remote Calendar](https://www.home-assistant.io/integrations/remote_calendar/)
+integration (or any other iCal-compatible client).
 
-This is a tiny **Node server** that bridges the gap. It exposes a single URL
-that, when fetched, pulls live data from TNEW and returns a valid RFC 5545
-`.ics` feed. Point Home Assistant's Remote Calendar at that URL and you're done —
-no cron job, no static file to regenerate, no token to paste.
+Each website is a self-contained **scraper plugin** — a single file in
+`src/scrapers/`. The server auto-discovers them at startup and registers a feed
+URL for each. Adding a new site means adding one file; nothing else changes.
 
 ```
-HA Remote Calendar  ──GET──►  this server  ──►  TNEW JSON endpoint
+HA Remote Calendar  ──GET──►  this server  ──►  scraper plugin  ──►  website
        ◄──────── text/calendar (.ics) ────────
 ```
 
-## How it works
+## Current scrapers
 
-The `/events` page POSTs to `/api/products/productionseasons` to get its event
-list. That endpoint requires an ASP.NET antiforgery token + session cookies, so
-on each request the server **bootstraps its own session**:
+| Feed path | Site |
+|-----------|------|
+| `/unionartscenter.ics` | [Union Arts Center](https://order.unionartscenter.org/events) |
 
-1. `GET /events` to collect cookies and scrape the `__RequestVerificationToken`.
-2. `POST /api/products/productionseasons` with that token + a date range.
-3. Convert each `performance` into a `VEVENT` and return the assembled calendar.
+## Adding a new scraper
 
-Responses are cached in memory (default 1 hour) so casual extra hits don't
-hammer the venue's backend; Home Assistant only refreshes every 24h anyway.
+Create `src/scrapers/<sitename>.js` and export three things:
 
-Each event gets:
+```js
+export const name = 'My Venue';           // human-readable name (used in logs + index)
+export const path = '/myvenue.ics';       // URL path this feed is served at
 
-- **SUMMARY** — the performance title (embedded HTML like `<strong>` is stripped)
-- **DTSTART / DTEND** — start from the API in `America/Los_Angeles` (with an
-  embedded `VTIMEZONE`); end defaults to start + 2h30m since the API gives no
-  end time
-- **LOCATION** — `Union Arts Center`
-- **URL / DESCRIPTION** — the buy-tickets link and on-sale status
-- **UID** — `uac-perf-<performanceId>@unionartscenter.org`, stable across fetches
-  so Home Assistant never duplicates events
+export async function generate() {
+  // Fetch event data from the site however needed, build an iCal string,
+  // and return it. Use the shared helpers from ../lib/calendar.js.
+  const cal = createCalendar({ name, timezone: 'America/Los_Angeles' });
+  cal.createEvent({ ... });
+  return cal.toString();
+}
+```
 
-## Running it
+Restart the server — the new feed is live. The index page at `/` lists all
+registered feeds automatically.
+
+### Shared helpers (`src/lib/calendar.js`)
+
+| Export | Use |
+|--------|-----|
+| `createCalendar({ name, timezone })` | Returns a pre-configured `ICalCalendar` with embedded `VTIMEZONE` |
+| `cleanText(str)` | Strips HTML tags and decodes common entities from event titles |
+| `cookieHeaderFrom(setCookies)` | Collapses `Set-Cookie` header array into a `Cookie` header string |
+
+## How the Union Arts Center scraper works
+
+The `/events` page POSTs to `/api/products/productionseasons`, guarded by an
+ASP.NET antiforgery token + session cookies. The scraper **bootstraps its own
+session**: GETs `/events` to collect cookies and scrape the token, then POSTs
+to the data endpoint. You never have to paste tokens — they're acquired
+automatically on each request.
+
+## Setup
 
 Requires Node 20+.
 
 ```bash
 npm install
 npm start
-# → Union Arts Center iCal server listening on http://0.0.0.0:3000/unionartscenter.ics
+# → Registered: Union Arts Center → /unionartscenter.ics
+# → Listening on http://0.0.0.0:3000
 ```
 
-Verify it:
-
-```bash
-curl http://localhost:3000/unionartscenter.ics
-```
+Visit `http://localhost:3000` for an index of all feeds.
 
 ### Configuration (environment variables)
 
@@ -62,21 +75,16 @@ curl http://localhost:3000/unionartscenter.ics
 |----------|---------|---------|
 | `PORT` | `3000` | Port to listen on |
 | `HOST` | `0.0.0.0` | Bind address |
-| `CALENDAR_PATH` | `/unionartscenter.ics` | URL path of the feed |
-| `CACHE_TTL_SECONDS` | `3600` | How long to reuse a generated feed before refetching |
-| `CALENDAR_USERNAME` | – | If set, require HTTP basic auth |
+| `CACHE_TTL_SECONDS` | `3600` | How long to reuse a generated feed before re-fetching |
+| `CALENDAR_USERNAME` | – | If set, require HTTP basic auth for all feeds |
 | `CALENDAR_PASSWORD` | – | Password for basic auth |
 
-Home Assistant's Remote Calendar supports HTTP basic auth, so setting
-`CALENDAR_USERNAME` / `CALENDAR_PASSWORD` lets you expose the feed safely.
-
-### One-shot file generation (optional)
-
-If you'd rather host a static file instead of running a server, the same logic
-is available as a CLI:
+### One-shot file generation
 
 ```bash
-node src/cli.js -o unionartscenter.ics
+node src/cli.js                         # list available scrapers
+node src/cli.js unionartscenter         # print feed to stdout
+node src/cli.js unionartscenter -o out.ics
 ```
 
 ## Deployment
@@ -84,21 +92,22 @@ node src/cli.js -o unionartscenter.ics
 ### Docker
 
 ```bash
-docker build -t uac-ical .
-docker run -d --restart unless-stopped -p 3000:3000 --name uac-ical uac-ical
+docker compose up -d
 ```
+
+`docker-compose.yml` defaults to the published image (`ghcr.io/chewbaccalakis/ical-scraper:latest`). To build locally, swap to the commented `build: .` line.
 
 ### systemd
 
-`/etc/systemd/system/uac-ical.service`:
+`/etc/systemd/system/ical-scraper.service`:
 
 ```ini
 [Unit]
-Description=Union Arts Center iCal server
+Description=ical-scraper
 After=network-online.target
 
 [Service]
-WorkingDirectory=/path/to/unionartscenter-ical
+WorkingDirectory=/path/to/this-repo
 ExecStart=/usr/bin/node src/server.js
 Environment=PORT=3000
 Restart=on-failure
@@ -108,31 +117,25 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now uac-ical
+sudo systemctl enable --now ical-scraper
 ```
 
-## Adding the Remote Calendar in Home Assistant
+## Adding to Home Assistant
 
 Requires Home Assistant **2025.4** or newer.
 
 1. **Settings → Devices & Services → Add Integration → Remote Calendar**
-2. **Calendar name:** `Union Arts Center`
-3. **URL:** where this server is reachable, e.g.
-   `http://<host running this server>:3000/unionartscenter.ics`
-4. If you set `CALENDAR_USERNAME` / `CALENDAR_PASSWORD`, enter them when prompted.
-5. Submit. HA fetches the feed immediately and refreshes it every 24h.
-
-Events appear on the **Calendar** dashboard and as a `calendar.union_arts_center`
-entity you can use in automations.
+2. **Calendar name:** e.g. `Union Arts Center`
+3. **URL:** `http://<host>:3000/unionartscenter.ics`
+4. Submit — HA fetches immediately and refreshes every 24h.
 
 ## Troubleshooting
 
-- **502 / `Could not find __RequestVerificationToken`** — the venue's bot
-  protection (Incapsula) likely served a challenge page instead of real HTML.
-  At this low request volume it's rare; retrying usually succeeds. If it becomes
-  persistent the bootstrap step would need a headless browser (Playwright) to
-  clear the challenge — open an issue and we can add that path.
-- **Empty calendar** — confirm the season has on-sale performances within the
-  query window (default −30 to +400 days; adjustable in `src/generate.js`).
-- **Duplicate events in HA** — shouldn't happen (UIDs are stable); if you see
-  them, delete and re-add the calendar in HA.
+- **502 on a feed** — the scraper failed to fetch from the source site. Check
+  logs for the error message. For UAC specifically: the Incapsula bot-protection
+  layer occasionally serves a JS challenge instead of real HTML; re-running
+  usually succeeds. If persistent, a Playwright-based bootstrap can be added.
+- **Empty calendar** — the scraper ran but found no events in the date window.
+  Verify the site has upcoming events and the scraper's date range covers them.
+- **Duplicate events in HA** — UIDs are stable by design; this shouldn't happen.
+  If it does, delete and re-add the calendar in HA.

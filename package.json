@@ -1,7 +1,7 @@
 {
-  "name": "unionartscenter-ical",
+  "name": "ical-scraper",
   "version": "1.0.0",
-  "description": "On-demand iCal feed bridging Union Arts Center's Tessitura TNEW calendar into Home Assistant",
+  "description": "Scrapes event calendars from websites that don't publish iCal feeds and serves them as .ics endpoints",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
