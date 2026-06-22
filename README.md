@@ -19,7 +19,11 @@ HA Remote Calendar  ──GET──►  this server  ──►  scraper plugin  
 | Feed path | Site |
 |-----------|------|
 | `/unionartscenter.ics` | [Union Arts Center](https://order.unionartscenter.org/events) |
-| `/stgpresents.ics` | [Seattle Theatre Group](https://www.stgpresents.org/calendar/) |
+| `/stgpresents.ics` | [Seattle Theatre Group](https://www.stgpresents.org/calendar/) — all venues |
+| `/stg-paramount.ics` | Seattle Theatre Group — The Paramount Theatre (incl. the Tower/archive) |
+| `/stg-neptune.ics` | Seattle Theatre Group — The Neptune Theatre |
+| `/stg-moore.ics` | Seattle Theatre Group — The Moore Theatre |
+| `/stg-kerry-hall.ics` | Seattle Theatre Group — Kerry Hall |
 
 ## Adding a new scraper
 
@@ -78,6 +82,20 @@ offset (a known MEC bug) — e.g. a 1:00 PM show is emitted as `…T06:00:00-07:
 The scraper recovers the real time by reading the instant's UTC wall-clock and
 re-stamping it in `America/Los_Angeles`.
 
+The scraping lives in `src/lib/stg.js`; the files in `src/scrapers/`
+(`stgpresents.js` plus `stg-paramount.js`, `stg-neptune.js`, `stg-moore.js`,
+`stg-kerry-hall.js`) are thin wrappers that call `getEvents()` and filter by
+venue. `getEvents()` caches the parsed events in memory, so the overall feed and
+the per-venue feeds **share a single scrape per refresh** rather than hitting the
+site once per feed. To add another venue feed, drop in a one-line file:
+
+```js
+import { venueFeed } from '../lib/stg.js';
+export const name = 'Seattle Theatre Group — The 5th Avenue Theatre';
+export const path = '/stg-5th-avenue.ics';
+export const generate = venueFeed(name, /5th avenue/i);
+```
+
 ## Setup
 
 Requires Node 20+.
@@ -87,6 +105,10 @@ npm install
 npm start
 # → Registered: Union Arts Center → /unionartscenter.ics
 # → Registered: Seattle Theatre Group → /stgpresents.ics
+# → Registered: Seattle Theatre Group — Paramount Theatre → /stg-paramount.ics
+# → Registered: Seattle Theatre Group — Neptune Theatre → /stg-neptune.ics
+# → Registered: Seattle Theatre Group — Moore Theatre → /stg-moore.ics
+# → Registered: Seattle Theatre Group — Kerry Hall → /stg-kerry-hall.ics
 # → Listening on http://0.0.0.0:3000
 ```
 
